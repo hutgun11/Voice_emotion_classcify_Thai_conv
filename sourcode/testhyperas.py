@@ -1,0 +1,93 @@
+
+import pandas as pd
+
+import numpy as np
+import joblib
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import classification_report,confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+import keras
+
+import tensorflow as tf
+from keras.preprocessing import sequence
+from keras.models import Sequential
+from keras.layers import Dense, Embedding
+from keras.utils import to_categorical
+from keras.layers import Input, Flatten, Dropout, Activation, BatchNormalization
+from keras.layers import Conv1D, MaxPooling1D
+from keras.models import Model
+from keras.callbacks import ModelCheckpoint
+from hyperopt import Trials, STATUS_OK, tpe
+from hyperas import optim
+from hyperas.distributions import choice, uniform
+
+
+
+X = joblib.load('C:/Users/ASUS/Desktop/Ravdess_model/X.joblib')
+y = joblib.load('C:/Users/ASUS/Desktop/Ravdess_model/y.joblib')
+def data():
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.25, random_state=42)
+    x_traincnn = np.expand_dims(X_train, axis=2)
+    x_testcnn = np.expand_dims(X_test, axis=2)
+    x_valcnn = np.expand_dims(X_val, axis=2)
+    
+    x_traincnn.shape, x_testcnn.shape,x_valcnn.shape
+    return x_traincnn,y_train,x_valcnn,y_val
+
+
+
+
+#สร้างmodel
+def model(x_traincnn, y_train, x_valcnn, y_val):
+    model = Sequential()
+    model.add(Dense({{choice([128, 256, 512, 1024])}}, input_shape=(784,)))
+    model.add(Activation({{choice(['relu', 'sigmoid'])}}))
+    model.add(Dropout({{uniform(0, 1)}}))
+    model.add(Dense({{choice([128, 256, 512, 1024])}}))
+    model.add(Activation({{choice(['relu', 'sigmoid'])}}))
+    model.add(Dropout({{uniform(0, 1)}}))
+    
+    if conditional({{choice(['two', 'three'])}}) == 'three':
+        model.add(Dense({{choice([128, 256, 512, 1024])}}))
+        model.add(Activation({{choice(['relu', 'sigmoid'])}}))
+        model.add(Dropout({{uniform(0, 1)}}))
+        
+    model.add(Dense(10))
+    model.add(Activation('softmax'))
+    adam = keras.optimizers.Adam(lr={{choice([10**-3, 10**-2, 10**-1])}})
+    rmsprop = keras.optimizers.RMSprop(lr={{choice([10**-3, 10**-2, 10**-1])}})
+    sgd = keras.optimizers.SGD(lr={{choice([10**-3, 10**-2, 10**-1])}})
+   
+    choiceval = {{choice(['adam', 'sgd', 'rmsprop'])}}
+    if choiceval == 'adam':
+        optim = adam
+    elif choiceval == 'rmsprop':
+        optim = rmsprop
+    else:
+        optim = sgd
+        
+    model.compile(loss='categorical_crossentropy', metrics=['accuracy'],optimizer=optim)
+    model.fit(x_traincnn, y_train,
+              batch_size={{choice([128,256,512])}},
+              nb_epoch=20,
+              verbose=2,
+              validation_data=(x_valcnn, y_val))
+    score, acc = model.evaluate(x_valcnn, y_val, verbose=0)
+    print('Test accuracy:', acc)
+    return {'loss': -acc, 'status': STATUS_OK, 'model': model}
+
+if __name__ == '__main__':
+    best_run, best_model = optim.minimize(model=model,
+                                          data=data,
+                                          algo=tpe.suggest,
+                                          max_evals=5,
+                                          trials=Trials(),
+                                          notebook_name='Testhyperas'
+                                          )
+    X_train, Y_train, X_test, Y_test = data()
+    print("Evalutation of best performing model:")
+    print(best_model.evaluate(X_test, Y_test))
+    print("Best performing model chosen hyper-parameters:")
+    print(best_run)
